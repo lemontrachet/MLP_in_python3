@@ -1,19 +1,23 @@
 import numpy as np
 from copy import copy
-from iris_data_prepared import X_train, y_train, X_test, y_test
 import matplotlib.pyplot as plt
+from iris_data_prepared import Data_shuffle
 
 class MLP():
     
-    def __init__(self, train_data, train_labels, num_hidden_layers=2,
-                    hidden_layer_size=50, activation="ReLU", l_rate=
-                    0.01, reg=1e-4):
+    def __init__(self, train_data, train_labels, test_data, test_labels,
+                 num_hidden_layers=2, hidden_layer_size=50,
+                 activation="ReLU", l_rate=0.01, reg=1e-4,
+                 weak_learner=False, vis=True):
         
         # data
         self.X = np.array(train_data)
         self.y = np.ravel(np.array(train_labels))
+        self.test_X = np.array(test_data)
+        self.test_y = np.ravel(np.array(test_labels))
         self.num_classes = len(np.unique(self.y))
         self.num_examples = self.X.shape[0]
+        self.vis=vis
         
         # structure
         self.num_hidden_layers = num_hidden_layers
@@ -32,6 +36,9 @@ class MLP():
         # hyperparameters
         self.l_rate = l_rate
         self.reg = reg
+        
+        # ensemble
+        self.weak_learner = weak_learner
 
     def initialise_weights(self):
         self.weights = []
@@ -128,29 +135,38 @@ class MLP():
             self.forward_pass()
             self.calc_loss()
             self.back_propogation()
-            if i % 1000 == 0:
+            if i % (iterations/100) == 0:
                 x.append(i)
-                test = self.get_accuracy(X_train, y_train)
-                train = self.get_accuracy(X_test, y_test)
-                y1.append(test)
-                y2.append(train)
+                train = self.get_accuracy('train')
+                test = self.get_accuracy('test')
+                y1.append(train)
+                y2.append(test)
                 y3.append(self.loss)
-                print(self.loss)
-                print(test)
-                print(train)
-        print("accuracy on training set:",
-                                    self.get_accuracy(X_train, y_train))
-        print("accuracy on test set:",
-                                    self.get_accuracy(X_test, y_test))
+                print("loss:", self.loss)
+                print("accuracy on training set:", train)
+                print("accuracy on test set:", test)
+                if (self.weak_learner == True and train > 0.5) or \
+                    train > 0.99:
+                    break
         print("error:", self.loss)
-        MLP.visualise(x, y1, y2, y3)
+        if self.vis == True: MLP.visualise(x, y1, y2, y3)
 
-
-    def get_accuracy(self, X, y):
-        X = np.array(X)
-        y = np.ravel(np.array(y))
+    def get_accuracy(self, t):
+        if t == 'train':
+            activations = []
+            activations.append(MLP.relu(np.dot(self.X, self.weights[0])
+                                                      + self.biases[0]))
+            for i in range(self.num_hidden_layers-1):
+                activations.append(MLP.relu(np.dot(activations[i],
+                                 self.weights[i+1]) + self.biases[i+1]))
+            activations.append(MLP.softmax(np.dot(activations[-1],
+                                   self.weights[-1]) + self.biases[-1]))
+        
+            predicted_class = np.argmax(activations[-1], axis=1)
+            return np.mean(predicted_class == self.y)
+        
         activations = []
-        activations.append(MLP.relu(np.dot(X, self.weights[0])
+        activations.append(MLP.relu(np.dot(self.test_X, self.weights[0])
                                                       + self.biases[0]))
         for i in range(self.num_hidden_layers-1):
             activations.append(MLP.relu(np.dot(activations[i],
@@ -159,8 +175,8 @@ class MLP():
                                    self.weights[-1]) + self.biases[-1]))
         
         predicted_class = np.argmax(activations[-1], axis=1)
-        return np.mean(predicted_class == y)
-
+        return np.mean(predicted_class == self.test_y)
+        
 
 ########################################################################
 # activation functions
@@ -196,5 +212,8 @@ class MLP():
         plt.plot(x, y3)
         plt.show()
 
-clf = MLP(X_train, y_train, 3, 25, "ReLU", 0.03, 1e-3)
-clf.train(60000)
+d = Data_shuffle()
+X_train, y_train, X_test, y_test = d.train_test_split()
+clf = MLP(X_train, y_train, X_test, y_test, 2, 95, "ReLU", 0.07,
+                                                      1e-3, False, True)
+clf.train(100000)
