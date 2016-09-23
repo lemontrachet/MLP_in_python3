@@ -9,7 +9,7 @@ class Ensemble_MLP():
     def __init__(self, N, data, num_hidden_layers=2,
                  hidden_layer_size=80, activation="ReLU", l_rate=0.01,
                  reg=1e-4):
-        self.N = N
+        self.N = N # the number of networks to build for the ensemble
         
         # make global training and test sets
         train, self.test = data.ensemble_data()
