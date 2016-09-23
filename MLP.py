@@ -5,10 +5,10 @@ from iris_data_prepared import Data_shuffle
 
 class MLP():
     
-    def __init__(self, train_data, train_labels, test_data, test_labels,
-                 num_hidden_layers=2, hidden_layer_size=50,
-                 activation="ReLU", l_rate=0.01, reg=1e-4,
-                 weak_learner=False, vis=True):
+    def __init__(self, train_data, train_labels, test_data=None,
+                 test_labels=None, num_hidden_layers=2,
+                 hidden_layer_size=50, activation="ReLU", l_rate=0.01,
+                 reg=1e-4, weak_learner=False, vis=True):
         
         # data
         self.X = np.array(train_data)
@@ -31,7 +31,10 @@ class MLP():
         self.initialise_biases()
         
         # activation
-        self.activation = activation
+        functions = {'ReLU': MLP.relu,
+                     'tanh': MLP.tanh,
+                     'sigmoid': MLP.sigmoid}
+        self.activation = functions[activation]
         
         # hyperparameters
         self.l_rate = l_rate
@@ -59,11 +62,13 @@ class MLP():
 
     def forward_pass(self):
         self.activations = []
-        self.activations.append(MLP.relu(np.dot(self.X, self.weights[0])
+        self.activations.append(self.activation(np.dot(self.X, self.weights[0])
                                                       + self.biases[0]))
         for i in range(self.num_hidden_layers-1):
-            self.activations.append(MLP.relu(np.dot(self.activations[i],
+            self.activations.append(self.activation(np.dot(self.activations[i],
                                  self.weights[i+1]) + self.biases[i+1]))
+        
+        # final layer: softmax for normalised probabilities
         self.activations.append(MLP.softmax(np.dot(self.activations[-1],
                                    self.weights[-1]) + self.biases[-1]))
             
@@ -106,7 +111,9 @@ class MLP():
             this_layer = layers.pop()
             dweights.append(np.dot(this_layer.T, d_incoming))
             dhl = np.dot(d_incoming, w.T)
-            dhl[this_layer <= 0] = 0 # ReLU
+            if self.activation == MLP.relu:
+                dhl[this_layer <= 0] = 0
+            else: dhl = self.activation(dhl, True)
             dbiases.append(np.sum(d_incoming, axis=0, keepdims=True))
             w = weights.pop()
             b = biases.pop()
@@ -115,19 +122,17 @@ class MLP():
         dbiases.append(np.sum(d_incoming, axis=0, keepdims=True))
         return dweights[::-1], dbiases[::-1]
 
-    def predict(self, test_data, test_labels):
+    def ensemble_predict(self, X):
         activations = []
-        activations.append(Neural_Network.relu(np.dot(self.X,
-                                                self.weights[0])))
+        activations.append(self.activation(np.dot(X, self.weights[0])
+                                                      + self.biases[0]))
         for i in range(self.num_hidden_layers-1):
-            activations.append(Neural_Network.relu(np.dot(
-                            activations[i], self.weights[i+1])))
+            activations.append(self.activation(np.dot(activations[i],
+                                 self.weights[i+1]) + self.biases[i+1]))
         
-        activations.append(Neural_Network.softmax(
-                            np.dot(activations[-1], self.weights[-1])))
-    
-        predicted_class = np.argmax(activations.pop(), axis=1)
-        print(predicted_class)
+        activations.append(MLP.softmax(np.dot(activations[-1],
+                                   self.weights[-1]) + self.biases[-1]))
+        return activations[-1]
     
     def train(self, iterations):
         x, y1, y2, y3 = [], [], [], []
@@ -145,19 +150,19 @@ class MLP():
                 print("loss:", self.loss)
                 print("accuracy on training set:", train)
                 print("accuracy on test set:", test)
-                if (self.weak_learner == True and train > 0.5) or \
-                    train > 0.99:
-                    break
+            if (self.weak_learner == True and train > 0.5) or \
+                                                           train > 0.99:
+                break
         print("error:", self.loss)
         if self.vis == True: MLP.visualise(x, y1, y2, y3)
 
     def get_accuracy(self, t):
         if t == 'train':
             activations = []
-            activations.append(MLP.relu(np.dot(self.X, self.weights[0])
+            activations.append(self.activation(np.dot(self.X, self.weights[0])
                                                       + self.biases[0]))
             for i in range(self.num_hidden_layers-1):
-                activations.append(MLP.relu(np.dot(activations[i],
+                activations.append(self.activation(np.dot(activations[i],
                                  self.weights[i+1]) + self.biases[i+1]))
             activations.append(MLP.softmax(np.dot(activations[-1],
                                    self.weights[-1]) + self.biases[-1]))
@@ -165,18 +170,19 @@ class MLP():
             predicted_class = np.argmax(activations[-1], axis=1)
             return np.mean(predicted_class == self.y)
         
-        activations = []
-        activations.append(MLP.relu(np.dot(self.test_X, self.weights[0])
-                                                      + self.biases[0]))
-        for i in range(self.num_hidden_layers-1):
-            activations.append(MLP.relu(np.dot(activations[i],
+        elif self.weak_learner == False:
+            activations = []
+            activations.append(self.activation(np.dot(self.test_X,
+                                     self.weights[0]) + self.biases[0]))
+            for i in range(self.num_hidden_layers-1):
+                activations.append(self.activation(np.dot(activations[i],
                                  self.weights[i+1]) + self.biases[i+1]))
-        activations.append(MLP.softmax(np.dot(activations[-1],
+            activations.append(MLP.softmax(np.dot(activations[-1],
                                    self.weights[-1]) + self.biases[-1]))
         
-        predicted_class = np.argmax(activations[-1], axis=1)
-        return np.mean(predicted_class == self.test_y)
-        
+            predicted_class = np.argmax(activations[-1], axis=1)
+            return np.mean(predicted_class == self.test_y)
+        return 0
 
 ########################################################################
 # activation functions
@@ -187,12 +193,12 @@ class MLP():
         return np.maximum(0, x)
 
     @staticmethod
-    def sigmoid(x, deriv = False):
+    def sigmoid(x, deriv=False):
         if deriv == True: return x * (1 - x) 
         return 1.0 / (1.0 + np.exp(-x))    
 
     @staticmethod
-    def tanh(x, deriv = False):
+    def tanh(x, deriv=False):
         if deriv == True: return 1.0 - np.tanh(x)**2
         return np.tanh(x)
 
@@ -212,8 +218,5 @@ class MLP():
         plt.plot(x, y3)
         plt.show()
 
-d = Data_shuffle()
-X_train, y_train, X_test, y_test = d.train_test_split()
-clf = MLP(X_train, y_train, X_test, y_test, 2, 95, "ReLU", 0.07,
-                                                      1e-3, False, True)
-clf.train(100000)
+
+########################################################################
